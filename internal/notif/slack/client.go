@@ -16,6 +16,9 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Ensure Client implements BatchHandler so digest mode sends a single summary message.
+var _ notifier.BatchHandler = (*Client)(nil)
+
 const slackMaxRateLimitAttempts = 3
 
 // Client represents an active slack notification object
@@ -118,6 +121,93 @@ func (c *Client) Send(entry model.NotifEntry) error {
 				Ts:            json.Number(strconv.FormatInt(time.Now().Unix(), 10)),
 			},
 		},
+	}
+
+	hc, err := httputil.NewClient(c.cfg.Proxy, false, nil)
+	if err != nil {
+		return errors.Wrap(err, "cannot create HTTP client for Slack notifier")
+	}
+	for attempt := 1; attempt <= slackMaxRateLimitAttempts; attempt++ {
+		err = slack.PostWebhookCustomHTTP(webhookURL, &hc, payload)
+		if err == nil {
+			return nil
+		}
+
+		rateLimitErr, ok := stderrors.AsType[*slack.RateLimitedError](err)
+		if !ok || attempt == slackMaxRateLimitAttempts {
+			return err
+		}
+
+		time.Sleep(rateLimitErr.RetryAfter)
+	}
+
+	return nil
+}
+
+// SendBatch sends a single Slack message summarising all pending notification entries.
+func (c *Client) SendBatch(entries *model.NotifEntries) error {
+	webhookURL, err := secret.GetSecret(c.cfg.WebhookURL, c.cfg.WebhookURLFile)
+	if err != nil {
+		return errors.Wrap(err, "cannot retrieve webhook URL for Slack notifier")
+	}
+
+	var attachments []slack.Attachment
+	for _, entry := range entries.Entries {
+		if !entry.PendingNotify() {
+			continue
+		}
+
+		message, err := msg.New(msg.Options{
+			Meta:         c.meta,
+			Entry:        entry,
+			TemplateBody: c.cfg.TemplateBody,
+		})
+		if err != nil {
+			return err
+		}
+		_, body, err := message.RenderMarkdown()
+		if err != nil {
+			return err
+		}
+
+		var fields []slack.AttachmentField
+		if *c.cfg.RenderFields {
+			fields = []slack.AttachmentField{
+				{Title: "Provider", Value: entry.Provider, Short: true},
+				{Title: "Platform", Value: entry.Manifest.Platform, Short: true},
+			}
+			if entry.Manifest.Created != nil {
+				fields = append(fields, slack.AttachmentField{
+					Title: "Created",
+					Value: entry.Manifest.Created.Format("Jan 02, 2006 15:04:05 UTC"),
+					Short: false,
+				})
+			}
+		}
+
+		color := "#4caf50"
+		if entry.Status == model.ImageStatusUpdate {
+			color = "#0054ca"
+		}
+
+		attachments = append(attachments, slack.Attachment{
+			Color:  color,
+			Text:   string(body),
+			Fields: fields,
+			Ts:     json.Number(strconv.FormatInt(time.Now().Unix(), 10)),
+		})
+	}
+
+	if len(attachments) == 0 {
+		return nil
+	}
+
+	header := fmt.Sprintf("<!channel> *%d image update(s) found* — %d new, %d updated",
+		entries.CountNew+entries.CountUpdate, entries.CountNew, entries.CountUpdate)
+
+	payload := &slack.WebhookMessage{
+		Text:        header,
+		Attachments: attachments,
 	}
 
 	hc, err := httputil.NewClient(c.cfg.Proxy, false, nil)
