@@ -153,6 +153,7 @@ func (c *Client) SendBatch(entries *model.NotifEntries) error {
 	}
 
 	var lines []string
+	var countNew, countUpdate int
 	for _, entry := range entries.Entries {
 		if !entry.PendingNotify() {
 			continue
@@ -160,6 +161,9 @@ func (c *Client) SendBatch(entries *model.NotifEntries) error {
 		status := "new"
 		if entry.Status == model.ImageStatusUpdate {
 			status = "updated"
+			countUpdate++
+		} else {
+			countNew++
 		}
 		lines = append(lines, fmt.Sprintf("• `%s` _%s_", entry.Image.String(), status))
 	}
@@ -169,8 +173,8 @@ func (c *Client) SendBatch(entries *model.NotifEntries) error {
 	}
 
 	text := fmt.Sprintf("<!channel> *%d image(s) need attention* — %d new, %d updated (host: %s)\n%s",
-		entries.CountNew+entries.CountUpdate,
-		entries.CountNew, entries.CountUpdate,
+		countNew+countUpdate,
+		countNew, countUpdate,
 		c.meta.Hostname,
 		strings.Join(lines, "\n"))
 
