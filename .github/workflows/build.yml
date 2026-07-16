@@ -254,6 +254,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=ref,event=pr
+            type=ref,event=branch
             type=edge
           labels: |
             org.opencontainers.image.title=Diun
