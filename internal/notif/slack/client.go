@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/crazy-max/diun/v4/internal/httputil"
@@ -144,70 +145,37 @@ func (c *Client) Send(entry model.NotifEntry) error {
 	return nil
 }
 
-// SendBatch sends a single Slack message summarising all pending notification entries.
+// SendBatch sends a single compact Slack message listing all pending notification entries.
 func (c *Client) SendBatch(entries *model.NotifEntries) error {
 	webhookURL, err := secret.GetSecret(c.cfg.WebhookURL, c.cfg.WebhookURLFile)
 	if err != nil {
 		return errors.Wrap(err, "cannot retrieve webhook URL for Slack notifier")
 	}
 
-	var attachments []slack.Attachment
+	var lines []string
 	for _, entry := range entries.Entries {
 		if !entry.PendingNotify() {
 			continue
 		}
-
-		message, err := msg.New(msg.Options{
-			Meta:         c.meta,
-			Entry:        entry,
-			TemplateBody: c.cfg.TemplateBody,
-		})
-		if err != nil {
-			return err
-		}
-		_, body, err := message.RenderMarkdown()
-		if err != nil {
-			return err
-		}
-
-		var fields []slack.AttachmentField
-		if *c.cfg.RenderFields {
-			fields = []slack.AttachmentField{
-				{Title: "Provider", Value: entry.Provider, Short: true},
-				{Title: "Platform", Value: entry.Manifest.Platform, Short: true},
-			}
-			if entry.Manifest.Created != nil {
-				fields = append(fields, slack.AttachmentField{
-					Title: "Created",
-					Value: entry.Manifest.Created.Format("Jan 02, 2006 15:04:05 UTC"),
-					Short: false,
-				})
-			}
-		}
-
-		color := "#4caf50"
+		status := "new"
 		if entry.Status == model.ImageStatusUpdate {
-			color = "#0054ca"
+			status = "updated"
 		}
-
-		attachments = append(attachments, slack.Attachment{
-			Color:  color,
-			Text:   string(body),
-			Fields: fields,
-			Ts:     json.Number(strconv.FormatInt(time.Now().Unix(), 10)),
-		})
+		lines = append(lines, fmt.Sprintf("• `%s` _%s_", entry.Image.String(), status))
 	}
 
-	if len(attachments) == 0 {
+	if len(lines) == 0 {
 		return nil
 	}
 
-	header := fmt.Sprintf("<!channel> *%d image update(s) found* — %d new, %d updated",
-		entries.CountNew+entries.CountUpdate, entries.CountNew, entries.CountUpdate)
+	text := fmt.Sprintf("<!channel> *%d image(s) need attention* — %d new, %d updated (host: %s)\n%s",
+		entries.CountNew+entries.CountUpdate,
+		entries.CountNew, entries.CountUpdate,
+		c.meta.Hostname,
+		strings.Join(lines, "\n"))
 
 	payload := &slack.WebhookMessage{
-		Text:        header,
-		Attachments: attachments,
+		Text: text,
 	}
 
 	hc, err := httputil.NewClient(c.cfg.Proxy, false, nil)
