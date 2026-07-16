@@ -165,17 +165,22 @@ func (c *Client) SendBatch(entries *model.NotifEntries) error {
 		} else {
 			countNew++
 		}
-		lines = append(lines, fmt.Sprintf("• `%s` _%s_", entry.Image.String(), status))
+		imgDisplay := entry.Image.Path
+		if entry.Image.Tag != "" {
+			imgDisplay += ":" + entry.Image.Tag
+		}
+		lines = append(lines, fmt.Sprintf("• `%s` _%s_", imgDisplay, status))
 	}
 
 	if len(lines) == 0 {
 		return nil
 	}
 
-	text := fmt.Sprintf("<!channel> *%d image(s) need attention* — %d new, %d updated (host: %s)\n%s",
+	hostname := strings.TrimPrefix(c.meta.Hostname, "diun__")
+	text := fmt.Sprintf("*%d image(s) need attention* — %d new, %d updated (host: %s)\n%s",
 		countNew+countUpdate,
 		countNew, countUpdate,
-		c.meta.Hostname,
+		hostname,
 		strings.Join(lines, "\n"))
 
 	payload := &slack.WebhookMessage{
