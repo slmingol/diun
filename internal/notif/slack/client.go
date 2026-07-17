@@ -165,11 +165,20 @@ func (c *Client) SendBatch(entries *model.NotifEntries) error {
 		} else {
 			countNew++
 		}
-		imgDisplay := entry.Image.Path
-		if entry.Image.Tag != "" {
-			imgDisplay += ":" + entry.Image.Tag
+		imgPath := entry.Image.Path
+		if parts := strings.Split(imgPath, "/"); len(parts) > 2 {
+			imgPath = strings.Join(parts[len(parts)-2:], "/")
 		}
-		line := fmt.Sprintf("• `%s` _%s_", imgDisplay, status)
+		if entry.Image.Tag != "" {
+			imgPath += ":" + entry.Image.Tag
+		}
+		var imgDisplay string
+		if entry.Image.HubLink != "" {
+			imgDisplay = fmt.Sprintf("<%s|%s>", entry.Image.HubLink, imgPath)
+		} else {
+			imgDisplay = "`" + imgPath + "`"
+		}
+		line := fmt.Sprintf("• %s _%s_", imgDisplay, status)
 		if !entry.Manifest.Created.IsZero() {
 			line += " · " + entry.Manifest.Created.Format("Jan 02")
 		}
