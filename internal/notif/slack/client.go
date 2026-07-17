@@ -169,7 +169,17 @@ func (c *Client) SendBatch(entries *model.NotifEntries) error {
 		if entry.Image.Tag != "" {
 			imgDisplay += ":" + entry.Image.Tag
 		}
-		lines = append(lines, fmt.Sprintf("• `%s` _%s_", imgDisplay, status))
+		line := fmt.Sprintf("• `%s` _%s_", imgDisplay, status)
+		if !entry.Manifest.Created.IsZero() {
+			line += " · " + entry.Manifest.Created.Format("Jan 02")
+		}
+		if d := entry.Manifest.Digest.String(); len(d) > 7 {
+			if len(d) > 15 {
+				d = d[:15]
+			}
+			line += " · `" + d + "`"
+		}
+		lines = append(lines, line)
 	}
 
 	if len(lines) == 0 {
